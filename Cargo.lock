@@ -4864,6 +4864,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "libjaka",
+ "nalgebra",
  "robot_behavior",
  "roplat_rerun",
  "rsbullet",
