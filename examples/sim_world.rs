@@ -1,7 +1,7 @@
 use nalgebra::{self as na, Vector3};
 use std::{f64::consts::FRAC_PI_2, time::Duration};
 
-use libjaka::JakaMini2;
+use franka_rust::FrankaEmika;
 use robot_behavior::{Entity, behavior::*};
 use rsbullet::RsBullet;
 
@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
         .set_step_time(Duration::from_secs_f64(1. / 240.))?;
 
     let mut robot_1 = physics_engine
-        .robot_builder::<JakaMini2>("robot_1")
+        .robot_builder::<FrankaEmika>("robot_1")
         .base(na::Isometry3::from_parts(
             [0.0, 0.2, 0.0].into(),
             na::Rotation3::from_axis_angle(&Vector3::z_axis(), FRAC_PI_2).into(),
@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
         .base_fixed(true)
         .load()?;
     let mut robot_2 = physics_engine
-        .robot_builder::<JakaMini2>("robot_2")
+        .robot_builder::<FrankaEmika>("robot_2")
         .base(na::Isometry3::from_parts(
             [0.0, -0.2, 0.0].into(),
             na::Rotation3::from_axis_angle(&Vector3::z_axis(), -FRAC_PI_2).into(),
@@ -65,8 +65,8 @@ fn main() -> anyhow::Result<()> {
     for _ in 0..100 {
         physics_engine.step()?;
     }
-    robot_1.move_joint(&[0.; 6])?;
-    robot_2.move_joint(&[0.; 6])?;
+    robot_1.move_joint(&[0.; 7])?;
+    robot_2.move_joint(&[0.; 7])?;
     loop {
         physics_engine.step()?;
     }

@@ -1,3 +1,8 @@
+/*
+basic_example 提供了控制实体机器人的快捷操作指令，
+包括初始化、使能、禁用和关闭机器人等操作
+
+*/
 use libjaka::JakaMini2;
 use robot_behavior::behavior::*;
 

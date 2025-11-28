@@ -1,12 +1,12 @@
-use libjaka::JakaMini2;
+use franka_rust::FrankaEmika;
 use nalgebra as na;
 use robot_behavior::{MotionType, Pose, behavior::*};
 
 fn main() -> anyhow::Result<()> {
-    let mut robot = JakaMini2::new("10.5.5.100");
+    let mut robot = FrankaEmika::new("10.5.5.100");
 
-    robot.move_joint(&[0.; 6])?;
-    robot.move_to(MotionType::Joint([0.; 6]))?;
+    robot.move_joint(&[0.; 7])?;
+    robot.move_to(MotionType::Joint([0.; 7]))?;
 
     robot.move_cartesian(&Pose::Quat(na::Isometry3::identity()))?;
     robot.move_to(MotionType::Cartesian(Pose::Quat(na::Isometry3::identity())))?;
