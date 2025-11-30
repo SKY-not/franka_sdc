@@ -8736,9 +8736,9 @@ checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "rsbullet"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e6d43a6b5ff30b9181247ab805518a26c45db3f5bb678d44bf64c529670ced8"
+checksum = "30ff7d87a5b95a9f8a4d2af334fe838ca427812f3535450f158f0fe66f62be27"
 dependencies = [
  "anyhow",
  "nalgebra",
