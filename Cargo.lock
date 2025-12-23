@@ -1799,9 +1799,9 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
 name = "cxx-build"
-version = "1.0.187"
+version = "1.0.192"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d74b6bcf49ebbd91f1b1875b706ea46545032a14003b5557b7dfa4bbeba6766e"
+checksum = "af9efde466c5d532d57efd92f861da3bdb7f61e369128ce8b4c3fe0c9de4fa4d"
 dependencies = [
  "cc",
  "codespan-reporting 0.13.1",
@@ -3229,21 +3229,23 @@ checksum = "795cbfc56d419a7ce47ccbb7504dd9a5b7c484c083c356e797de08bd988d9629"
 
 [[package]]
 name = "franka_rust"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a56b119e01358e1f4a76244be37b6a6294d61fe54e235037459311eacf14162f"
+checksum = "162606bc273dd0fbe55281ccd86e9e632659fdd12196cd5e7ab84d39dc1d9eb2"
 dependencies = [
  "bincode",
  "bitflags 2.10.0",
  "crossbeam",
  "crossbeam-channel",
  "cxx-build",
+ "futures",
  "libc",
  "libloading",
  "nalgebra",
  "num-derive",
  "num-traits",
  "robot_behavior",
+ "roplat",
  "serde",
  "serde-big-array",
  "serde_json",
@@ -3253,6 +3255,7 @@ dependencies = [
  "sys-locale",
  "thiserror 2.0.17",
  "thread-priority",
+ "tokio",
 ]
 
 [[package]]
@@ -4581,9 +4584,9 @@ checksum = "2874a2af47a2325c2001a6e6fad9b16a53b802102b528163885171cf92b15976"
 
 [[package]]
 name = "libjaka"
-version = "0.1.10"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f08354fee21dd4f9c768a1dadffc93940f7769a00cfdbe68936e9160b85fa75b"
+checksum = "9625bd29d82e8ca15f68cf815c6c44429a5b4b1783e5d8868392ee2255250cd9"
 dependencies = [
  "bincode",
  "cxx-build",
@@ -8657,17 +8660,19 @@ dependencies = [
 
 [[package]]
 name = "robot_behavior"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60f720a1f074bb830f6bf7bd0eefbd02d7d1dc37fa5ea45955d62ac815de28bb"
+checksum = "736cd783e0cb4742f473b10a64398e50b480e0fc219f15ffd03f0ffa93dbd3b4"
 dependencies = [
  "anyhow",
  "cxx-build",
+ "futures",
  "libc",
  "nalgebra",
  "paste",
  "pipe-trait",
  "plotters",
+ "roplat",
  "serde",
  "serde_json",
  "serde_with",
@@ -8703,15 +8708,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "roplat_exrobot"
-version = "0.1.2"
+name = "roplat"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "018c6bdebeb531a735c6dcb520323ad9bf61cf04af64d6f35e8f541acbc7a166"
+checksum = "75d179552a6517d77a355c9224e9f32f17f2fc8b6cf1aa7ceb73807dde3bde83"
 dependencies = [
- "anyhow",
- "cxx-build",
- "nalgebra",
- "robot_behavior",
+ "async-trait",
+ "futures",
+ "roplat_macros",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
+name = "roplat_macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cddbf302ef165d1a220ad099bebffecc14a5163539f74b358ed873d6826a9bf"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.110",
 ]
 
 [[package]]
@@ -8736,14 +8755,13 @@ checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "rsbullet"
-version = "0.3.3"
+version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30ff7d87a5b95a9f8a4d2af334fe838ca427812f3535450f158f0fe66f62be27"
+checksum = "cc1c9bf9b41a4653e40ff6ffedc0257a2eddbe483630e9f3e3e2910c0b964c83"
 dependencies = [
  "anyhow",
  "nalgebra",
  "robot_behavior",
- "roplat_exrobot",
  "rsbullet-core",
  "rsbullet_sys",
 ]
@@ -9126,9 +9144,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.15.1"
+version = "3.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa66c845eee442168b2c8134fec70ac50dc20e760769c8ba0ad1319ca1959b04"
+checksum = "4fa237f2807440d238e0364a218270b98f767a00d3dada77b1c53ae88940e2e7"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -9145,9 +9163,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.15.1"
+version = "3.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b91a903660542fced4e99881aa481bdbaec1634568ee02e0b8bd57c64cb38955"
+checksum = "52a8e3ca0ca629121f70ab50f95249e5a6f925cc0f6ffe8256c45b728875706c"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -9853,6 +9871,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",

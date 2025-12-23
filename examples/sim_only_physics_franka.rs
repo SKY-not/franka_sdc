@@ -14,7 +14,7 @@ fn main() -> Result<()> {
 
     let mut robot = physics
         .robot_builder::<FrankaEmika>("robot")
-        .base([0.0, -0.2, 0.0])
+        .base([0.0, 0.0, 0.0])
         .base_fixed(true)
         .load()?;
 
@@ -54,9 +54,13 @@ fn main() -> Result<()> {
         })?;
     }
 
+    robot.move_joint(&FrankaEmika::JOINT_DEFAULT)?;
+    for _ in 0..10000 {
+        physics.step()?;
+    }
     // 根据json文件运动
-    // robot.move_traj_from_file("./traj/test_move_traj.json")?;
-    robot.move_traj_from_file("./traj/ik_result.json")?;
+    robot.move_traj_from_file("./traj/trajectory.json")?;
+    // robot.move_traj_from_file("./traj/ik_result.json")?;
     loop {
         physics.step()?;
         sleep(Duration::from_secs_f64(1. / 240.));

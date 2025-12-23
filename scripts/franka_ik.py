@@ -68,6 +68,67 @@ def forward_kinematics(joints):
         T = T @ T_i
     return T
 
+def calculate_jacobian(joints):
+    """
+    Calculates the Geometric Jacobian for the Franka Emika robot.
+    
+    Args:
+        joints: 7 joint angles.
+        
+    Returns:
+        J: 6x7 Jacobian matrix.
+    """
+    T = np.eye(4)
+    
+    z_axes = []
+    p_origins = []
+    
+    for i, (a, d, alpha, offset) in enumerate(DH_PARAMS):
+        theta = joints[i] + offset
+        
+        # The axis of rotation for joint i is the Z-axis of the frame 
+        # after applying Rot_x(alpha) * Trans_x(a) to the previous frame T.
+        # T_{i-1, i} = Rot_x(alpha) * Trans_x(a) * Rot_z(theta) * Trans_z(d)
+        
+        ca = np.cos(alpha)
+        sa = np.sin(alpha)
+        
+        # Transformation due to link parameters (alpha, a)
+        M = np.array([
+            [1, 0, 0, a],
+            [0, ca, -sa, 0],
+            [0, sa, ca, 0],
+            [0, 0, 0, 1]
+        ])
+        
+        # Frame where the Z-axis is the joint axis
+        T_joint = T @ M
+        
+        z_axis = T_joint[:3, 2] # Z axis vector
+        p_origin = T_joint[:3, 3] # Origin position
+        
+        z_axes.append(z_axis)
+        p_origins.append(p_origin)
+        
+        # Update T to the next frame i
+        T_i = mdh_transform(a, d, alpha, theta)
+        T = T @ T_i
+        
+    p_e = T[:3, 3] # End-effector position
+    
+    J = np.zeros((6, 7))
+    for i in range(7):
+        z = z_axes[i]
+        p = p_origins[i]
+        
+        # Linear velocity part: v = w x r = z x (p_e - p)
+        J[:3, i] = np.cross(z, p_e - p)
+        
+        # Angular velocity part: w = z
+        J[3:, i] = z
+        
+    return J
+
 def rotation_error(R_current, R_target):
     """
     Calculates the rotation error between two rotation matrices.
@@ -128,11 +189,16 @@ def inverse_kinematics(target_pose, initial_guess=None):
         return result.x
 
 if __name__ == "__main__":
+    q = np.array([1.57, 1.57, -1.57, -1.57, 1.57, 1.57, 1.57])
+    # T = forward_kinematics(q)
+    # print("Forward Kinematics Result (T):")
+    # print(T)
     # Example Usage
     
     # 1. Define a target joint configuration to generate a target pose
     # target_joints_ground_truth = np.array([np.pi*2/3, -np.pi/4, 0.0, -3*np.pi/4, 0.0, np.pi/2, np.pi/4])
-    target_joints_ground_truth = np.array([-2.54552557,  2.16433802,  0.41517172,  0.84912696,  2.12946657, -1.08497437,-1.37358477])
+    # target_joints_ground_truth = np.array([-2.54552557,  2.16433802,  0.41517172,  0.84912696,  2.12946657, -1.08497437,-1.37358477])
+    target_joints_ground_truth = q
     print(f"Ground Truth Joints: {target_joints_ground_truth}")
     
     # 2. Calculate FK to get the target pose
@@ -144,7 +210,7 @@ if __name__ == "__main__":
     target_pose = np.array(
         [[ 1,  0,  0.0,  0.6],
          [ 0,  1,  0.0,  0.0],
-         [ 0.0,  0.0,  1.0,  0],
+         [ 0.0,  0.0,  -1.0,  0.3],
          [ 0.0,  0.0,  0.0,  1.0]]
     )
     print("\nTarget Pose (T):")
