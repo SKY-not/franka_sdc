@@ -8,11 +8,13 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from franka_ik import inverse_kinematics, calculate_jacobian, forward_kinematics
 from ballistic_solver import solve_ballistic, calculate_velocity, get_min_energy_time
+from config import SAFETY_FACTOR, JOINT_VEL_BOUND
+
 
 # Joint Velocity Limits (rad/s)
-JOINT_VEL_LIMITS = np.array([2.1750, 2.1750, 2.1750, 2.1750, 2.6100, 2.6100, 2.6100])
 
-def plan_throw_task(start_pos, target_pos, release_orientation=None, balance_param=0.5, optimize_for_limits=True, verbose=True):
+
+def plan_throw_task(start_pos, target_pos, release_orientation=None, verbose=True):
     """
     Plan a throwing task with strict joint velocity limit checks.
     Prioritizes finding ANY feasible solution over optimizing for time/speed.
@@ -53,6 +55,7 @@ def plan_throw_task(start_pos, target_pos, release_orientation=None, balance_par
     T_check = forward_kinematics(q_release)
     pos_err = np.linalg.norm(T_check[:3, 3] - start_pos)
     if verbose: print(f"IK Position Error: {pos_err:.6f}")
+    assert pos_err < 1e-4, "IK solution position error too high! Wrong FK or out of reach?"
     
     # 3. Calculate Jacobian
     J = calculate_jacobian(q_release)
@@ -82,7 +85,7 @@ def plan_throw_task(start_pos, target_pos, release_orientation=None, balance_par
         dq_test = np.linalg.pinv(J) @ v_cart_test
         
         # Check limits
-        ratios = np.abs(dq_test) / JOINT_VEL_LIMITS
+        ratios = np.abs(dq_test) / JOINT_VEL_BOUND
         max_ratio = np.max(ratios)
         
         if max_ratio < min_max_ratio:
@@ -94,7 +97,7 @@ def plan_throw_task(start_pos, target_pos, release_orientation=None, balance_par
                 "ratio": max_ratio
             }
             
-        if max_ratio <= 1.0:
+        if max_ratio <= SAFETY_FACTOR:
             if verbose: print(f"Found feasible solution! Time: {T:.4f}s, Max Ratio: {max_ratio:.2f}")
             found_feasible = True
             break 
@@ -188,7 +191,7 @@ if __name__ == "__main__":
     start = [0.2, 0.2, 0.1]
     target = [0.4, 0.2, 0.3]
     
-    result = plan_throw_task(start, target, balance_param=0.9)
+    result = plan_throw_task(start, target, release_orientation='auto', verbose=True)
     
     # Save result for other tools
     output_path = "./traj/throw_plan.json"

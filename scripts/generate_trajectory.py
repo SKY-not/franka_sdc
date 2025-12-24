@@ -6,15 +6,8 @@ import sys
 # Add current directory to sys.path to ensure import works
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from franka_ik import inverse_kinematics, forward_kinematics
-from throw_planner import plan_throw_task, search_feasible_throw
-from ballistic_solver import solve_ballistic
-
-# Safety Factor (0.0 < k <= 1.0)
-# Adjust this value to limit velocity, acceleration and jerk for safety
-# For throwing task, we need high velocity, so we increase safety factor or ignore it for the throw phase
-SAFETY_FACTOR = 1.0
-JOINT_VEL_BOUND = np.array([2.1750, 2.1750, 2.1750, 2.1750, 2.6100, 2.6100, 2.6100]) * SAFETY_FACTOR
-JOINT_ACC_BOUND = np.array([15., 7.5, 10., 12.5, 15., 20., 20.]) * SAFETY_FACTOR
+from throw_planner import search_feasible_throw
+from config import SAFETY_FACTOR, JOINT_VEL_BOUND, JOINT_ACC_BOUND, JOINT_JERK_BOUND
 
 # Default Joint Position (Start)
 JOINT_DEFAULT = np.array([
@@ -26,6 +19,119 @@ JOINT_DEFAULT = np.array([
     np.pi/2,
     np.pi/4,
 ])
+
+
+def compute_quintic_coeffs(q0, qf, v0, vf, a0, af, T):
+    """Return coefficients for a jerk-continuous quintic profile."""
+    if T <= 0:
+        raise ValueError("Trajectory duration must be positive")
+
+    a0_coef = q0
+    a1_coef = v0
+    a2_coef = 0.5 * a0
+
+    T2 = T * T
+    T3 = T2 * T
+    T4 = T3 * T
+    T5 = T4 * T
+
+    M = np.array([
+        [T3,    T4,    T5],
+        [3*T2,  4*T3,  5*T4],
+        [6*T,  12*T2, 20*T3],
+    ])
+
+    rhs = np.array([
+        qf - (a0_coef + a1_coef * T + a2_coef * T2),
+        vf - (a1_coef + 2 * a2_coef * T),
+        af - (2 * a2_coef),
+    ])
+
+    a3_coef, a4_coef, a5_coef = np.linalg.solve(M, rhs)
+    return np.array([a0_coef, a1_coef, a2_coef, a3_coef, a4_coef, a5_coef])
+
+
+def evaluate_quintic(coeffs, t):
+    a0_coef, a1_coef, a2_coef, a3_coef, a4_coef, a5_coef = coeffs
+    pos = (
+        a0_coef
+        + a1_coef * t
+        + a2_coef * t**2
+        + a3_coef * t**3
+        + a4_coef * t**4
+        + a5_coef * t**5
+    )
+    vel = (
+        a1_coef
+        + 2 * a2_coef * t
+        + 3 * a3_coef * t**2
+        + 4 * a4_coef * t**3
+        + 5 * a5_coef * t**4
+    )
+    acc = (
+        2 * a2_coef
+        + 6 * a3_coef * t
+        + 12 * a4_coef * t**2
+        + 20 * a5_coef * t**3
+    )
+    jerk = (
+        6 * a3_coef
+        + 24 * a4_coef * t
+        + 60 * a5_coef * t**2
+    )
+    return pos, vel, acc, jerk
+
+
+def max_profile_values(coeffs, T, samples=200):
+    """Sample the profile and return peak |vel|, |acc|, |jerk|."""
+    ts = np.linspace(0.0, T, samples)
+    max_vel = 0.0
+    max_acc = 0.0
+    max_jerk = 0.0
+    for t in ts:
+        _, vel, acc, jerk = evaluate_quintic(coeffs, t)
+        max_vel = max(max_vel, abs(vel))
+        max_acc = max(max_acc, abs(acc))
+        max_jerk = max(max_jerk, abs(jerk))
+    return max_vel, max_acc, max_jerk
+
+
+def synchronize_profiles(q_start, q_target, dq_target, t_guess, dt):
+    """Find a duration aligned to dt that satisfies v/a/jerk limits for all joints."""
+    T = max(t_guess, dt)
+    for _ in range(100):
+        ticks = max(1, int(np.ceil(T / dt)))
+        T_discrete = ticks * dt
+        coeffs_list = []
+        violated = False
+        for axis in range(len(q_start)):
+            try:
+                coeffs = compute_quintic_coeffs(
+                    q_start[axis],
+                    q_target[axis],
+                    0.0,
+                    dq_target[axis],
+                    0.0,
+                    0.0,
+                    T_discrete,
+                )
+            except np.linalg.LinAlgError:
+                violated = True
+                break
+            vmax, amax, jmax = max_profile_values(coeffs, T_discrete)
+            vel_limit = max(JOINT_VEL_BOUND[axis], abs(dq_target[axis]))
+            if (
+                vmax > vel_limit + 1e-6
+                or amax > JOINT_ACC_BOUND[axis] + 1e-6
+                or jmax > JOINT_JERK_BOUND[axis] + 1e-6
+            ):
+                violated = True
+                break
+            coeffs_list.append(coeffs)
+        if not violated:
+            return T_discrete, ticks, coeffs_list
+        T = T_discrete * 1.05
+    raise RuntimeError("Unable to satisfy jerk constraints with reasonable timing")
 
 def get_min_time_rest_to_vel(dist, vf, a_max):
     """
@@ -81,76 +187,16 @@ def get_min_time_rest_to_vel(dist, vf, a_max):
         
     return T
 
-def solve_profile_rest_to_vel(dist, vf, T):
-    """
-    Solve for acceleration a and profile type given T, dist, vf.
-    Returns params dict.
-    """
-    # Normalize
-    sign = 1.0
-    if vf < 0:
-        dist = -dist
-        vf = -vf
-        sign = -1.0
-        
-    # Check threshold
-    d_threshold = 0.5 * vf * T
-    
-    if dist < d_threshold:
-        # Backswing (-a, +a)
-        # Quadratic for a: T^2 a^2 + (4D - 2 T vf) a - vf^2 = 0
-        A = T**2
-        B = 4 * dist - 2 * T * vf
-        C = -vf**2
-        
-        delta = B**2 - 4 * A * C
-        a = (-B + np.sqrt(delta)) / (2 * A)
-        
-        # Calculate switching times
-        # t1^2 = vf^2/(2a^2) - dist/a
-        t1 = np.sqrt(vf**2 / (2 * a**2) - dist / a)
-        t2 = T - t1
-        
-        return {
-            'type': 'backswing',
-            'a': a * sign, # Magnitude a, direction depends on sign
-            't1': t1,
-            't2': t2,
-            'sign': sign
-        }
-    else:
-        # Peak-Over (+a, -a)
-        # Quadratic for a: T^2 a^2 - (4D - 2 T vf) a - vf^2 = 0
-        A = T**2
-        B = -(4 * dist - 2 * T * vf)
-        C = -vf**2
-        
-        delta = B**2 - 4 * A * C
-        a = (-B + np.sqrt(delta)) / (2 * A)
-        
-        # Calculate switching times
-        # t1 = 0.5(T + vf/a)
-        t1 = 0.5 * (T + vf / a)
-        t2 = T - t1
-        
-        return {
-            'type': 'peak_over',
-            'a': a * sign,
-            't1': t1,
-            't2': t2,
-            'sign': sign
-        }
-
 def generate_trajectory():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
 
     # 1. Define Throw Task
     # Target is fixed, but release position will be searched
-    ball_target_pos = [0.9, 0.0, 0.0] 
+    ball_target_pos = [0.9, 0.2, 0.0] 
     
     # Search Parameters
-    start_pos = [0.2, 0.3, 0.5]
+    start_pos = [0.3, 0.3, 0.3]
     search_radius = [0.2, 0.3, 0.2] # Widened search radius
     
     print(f"Searching for feasible throw to target {ball_target_pos}...")
@@ -177,67 +223,26 @@ def generate_trajectory():
     print(f"Target Velocity: {dq_target}")
     print(f"Safety Factor: {SAFETY_FACTOR}")
     
-    q_start = JOINT_DEFAULT
-    
-    # 2. Calculate Synchronized Time for Approach (Rest to Velocity)
-    dists = q_target - q_start # Signed distance
-    t_mins = []
-    for i in range(7):
-        t = get_min_time_rest_to_vel(dists[i], dq_target[i], JOINT_ACC_BOUND[i])
-        t_mins.append(t)
-        
-    t_sync = max(t_mins)
-    
-    # Round up to nearest tick
+    # 2. Calculate synchronized time with jerk constraints
+    dists = q_target - q_start
+    t_guess = max(
+        get_min_time_rest_to_vel(dists[i], dq_target[i], JOINT_ACC_BOUND[i])
+        for i in range(7)
+    )
+
     dt = 1.0 / 240.0
-    ticks = int(np.ceil(t_sync / dt))
-    if ticks == 0: ticks = 1
-    t_sync = ticks * dt
-    
+    t_sync, ticks, coeffs_per_joint = synchronize_profiles(q_start, q_target, dq_target, t_guess, dt)
+
     print(f"Approach Time: {t_sync:.4f}s ({ticks} ticks)")
-    
-    # 3. Generate Approach Trajectory
+
+    # 3. Generate Approach Trajectory using jerk-limited quintic profiles
     traj_points = []
-    
-    # Calculate params for each joint
-    params = []
-    for i in range(7):
-        p = solve_profile_rest_to_vel(dists[i], dq_target[i], t_sync)
-        p['start'] = q_start[i]
-        params.append(p)
-        
-    # Refined Evaluation Loop
-    # Let's pre-calculate a1, a2 for each joint
-    for p in params:
-        a_mag = abs(p['a'])
-        sign = p['sign']
-        if p['type'] == 'backswing':
-            # Flipped frame: -a, +a
-            # Real frame: -sign*a, +sign*a
-            p['a1'] = -sign * a_mag
-            p['a2'] = sign * a_mag
-        else:
-            # Flipped frame: +a, -a
-            # Real frame: +sign*a, -sign*a
-            p['a1'] = sign * a_mag
-            p['a2'] = -sign * a_mag
-            
+
     for k in range(ticks + 1):
-        t = k * dt
+        t = min(k * dt, t_sync)
         point = []
-        for i in range(7):
-            p = params[i]
-            if t <= p['t1']:
-                # Phase 1
-                # q = q0 + 0.5 * a1 * t^2
-                pos = p['start'] + 0.5 * p['a1'] * t**2
-            else:
-                # Phase 2
-                # q = q(t1) + v(t1)*dt + 0.5 * a2 * dt^2
-                dt2 = t - p['t1']
-                q_t1 = p['start'] + 0.5 * p['a1'] * p['t1']**2
-                v_t1 = p['a1'] * p['t1']
-                pos = q_t1 + v_t1 * dt2 + 0.5 * p['a2'] * dt2**2
+        for axis in range(7):
+            pos, _, _, _ = evaluate_quintic(coeffs_per_joint[axis], t)
             point.append(pos)
         traj_points.append({"Joint": point})
         
@@ -296,8 +301,6 @@ def generate_trajectory():
     
     with open(out_path, 'w') as f:
         json.dump(traj_points, f, indent=4)
-        
-    print(f"Saved trajectory to {out_path}")
         
     print(f"Saved trajectory to {out_path}")
 
