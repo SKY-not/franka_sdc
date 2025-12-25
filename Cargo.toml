@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 robot_behavior = "0.5.1"
-libjaka = "0.1.10"
-rsbullet = "0.3.3"
+libjaka = "0.1.12"
+rsbullet = "0.3.6"
 roplat_rerun = "0.1.1"
 anyhow = "1.0.100"
 nalgebra = "0.34.1"
-franka_rust = "0.1.11"
+franka_rust = "0.1.12"
