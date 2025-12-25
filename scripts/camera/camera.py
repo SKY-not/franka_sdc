@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import threading
 
-PARAMS_FILE = "camera_params.npz"
+PARAMS_FILE = "scripts\camera\camera_params.npz"
 
 class CameraViewerGUI:
     def __init__(self, master):
@@ -27,7 +27,7 @@ class CameraViewerGUI:
         ctrl_frame.pack(side=tk.TOP, fill=tk.X, padx=6, pady=6)
 
         ttk.Label(ctrl_frame, text="Camera ID:").grid(row=0, column=0)
-        self.cam_id_var = tk.IntVar(value=0)
+        self.cam_id_var = tk.IntVar(value=1)
         self.cam_id_spin = ttk.Spinbox(ctrl_frame, from_=0, to=10, width=5, textvariable=self.cam_id_var)
         self.cam_id_spin.grid(row=0, column=1)
 
