@@ -86,26 +86,10 @@ fn main() -> anyhow::Result<()> {
     // }
     // let _ = robot.state()?;
 
-    // robot.move_cartesian(&Pose::Quat(target_pose))?;
-    //robot.move_joint(&[FRAC_PI_2; 6])?;
-    robot.move_traj_from_file("./traj/test_move_traj.json")?;
-    // robot.move_traj_from_file("/traj/traj_test.json")?;
+    robot.move_traj_from_file("./traj/trajectory.json")?;
 
-    for _ in 0..1600 {
+    for _ in 0..10000 {
         physics_engine.step()?;
     }
     Ok(())
-
-    //  测试画一条短线
-    // println!(">>> Drawing a line along +Y axis...");
-
-    // let line_end_pose = na::Isometry3::from_parts(
-    //     na::Translation3::new(0.4, 0.1, 0.2),
-    //     rotation,
-    // );
-    // robot.move_cartesian(&Pose::Quat(line_end_pose))?;
-
-    // loop {
-    //     physics_engine.step()?;
-    // }
 }
