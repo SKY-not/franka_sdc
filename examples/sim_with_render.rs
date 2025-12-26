@@ -88,7 +88,7 @@ fn main() -> anyhow::Result<()> {
 
     robot.move_traj_from_file("./traj/trajectory.json")?;
 
-    for _ in 0..1000 {
+    for _ in 0..10000 {
         physics_engine.step()?;
     }
     Ok(())

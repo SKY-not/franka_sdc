@@ -1,0 +1,221 @@
+import numpy as np
+import json
+import os
+import sys
+
+# Add script dir to path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import config
+import franka_ik
+
+def get_quintic_coeffs(q0, v0, a0, q1, v1, a1, T):
+    T2 = T*T
+    T3 = T2*T
+    T4 = T3*T
+    T5 = T4*T
+    
+    h = q1 - q0
+    
+    A = np.array([
+        [T3, T4, T5],
+        [3*T2, 4*T3, 5*T4],
+        [6*T, 12*T2, 20*T3]
+    ])
+    b = np.array([
+        h - v0*T - 0.5*a0*T2,
+        v1 - v0 - a0*T,
+        a1 - a0
+    ])
+    
+    try:
+        x = np.linalg.solve(A, b)
+    except np.linalg.LinAlgError:
+        return np.zeros(6) # Should not happen for T > 0
+    
+    return np.array([q0, v0, 0.5*a0, x[0], x[1], x[2]])
+
+def evaluate_quintic(coeffs, t):
+    c0, c1, c2, c3, c4, c5 = coeffs
+    
+    t2 = t*t
+    t3 = t2*t
+    t4 = t3*t
+    t5 = t4*t
+    
+    q = c0 + c1*t + c2*t2 + c3*t3 + c4*t4 + c5*t5
+    v = c1 + 2*c2*t + 3*c3*t2 + 4*c4*t3 + 5*c5*t4
+    a = 2*c2 + 6*c3*t + 12*c4*t2 + 20*c5*t3
+    j = 6*c3 + 24*c4*t + 60*c5*t2
+    
+    return q, v, a, j
+
+def check_limits(coeffs, T, v_max, a_max, j_max):
+    num_samples = 50
+    times = np.linspace(0, T, num_samples)
+    
+    for t in times:
+        _, v, a, j = evaluate_quintic(coeffs, t)
+        if abs(v) > v_max + 1e-4: return False
+        if abs(a) > a_max + 1e-4: return False
+        if abs(j) > j_max + 1e-4: return False
+        
+    return True
+
+def find_min_duration(q0, v0, a0, q1, v1, a1, limits):
+    # limits: (v_max, a_max, j_max)
+    dist = abs(q1 - q0)
+    
+    # Heuristic start T
+    T = 0.1
+    if limits[0] > 0: T = max(T, dist / limits[0])
+    
+    dt = 0.05
+    max_T = 30.0
+    
+    while T < max_T:
+        coeffs = get_quintic_coeffs(q0, v0, a0, q1, v1, a1, T)
+        if check_limits(coeffs, T, *limits):
+            return T
+        T += dt
+        
+    print(f"Warning: Could not find valid T within {max_T}s")
+    return max_T
+
+def generate_trajectory():
+    # 1. Load Plan
+    traj_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'traj')
+    plan_path = os.path.join(traj_dir, 'throw_plan.json')
+    
+    if not os.path.exists(plan_path):
+        print(f"Error: {plan_path} not found. Run optimize_throw.py first.")
+        return
+
+    with open(plan_path, 'r') as f:
+        plan = json.load(f)
+        
+    q_release = np.array(plan['q'])
+    dq_release = np.array(plan['dq'])
+    
+    # 2. Define States
+    # Initial State (Neutral)
+    q_start = np.array([0.0, 0.0, 0.0, -1.5, 0.0, 1.5, 0.0])
+    dq_start = np.zeros(7)
+    ddq_start = np.zeros(7)
+    
+    # Release State
+    # q_release, dq_release loaded
+    ddq_release = np.zeros(7) # Assume 0 acceleration at release for smoothness
+    
+    # Final State (Stop Naturally)
+    # Instead of returning to start, we calculate a braking position
+    q_end = np.zeros(7)
+    dq_end = np.zeros(7)
+    ddq_end = np.zeros(7)
+    
+    # Limits
+    v_limits = config.JOINT_VEL_BOUND
+    a_limits = config.JOINT_ACC_BOUND
+    j_limits = config.JOINT_JERK_BOUND
+    
+    # Calculate Natural Stopping Position for Phase 2
+    decel_factor = 0.8 # Use 80% of max acceleration for braking
+    for i in range(7):
+        v = dq_release[i]
+        if abs(v) < 1e-4:
+            q_end[i] = q_release[i]
+        else:
+            # Estimate braking distance: d = v^2 / (2*a)
+            # We use a heuristic to determine target position
+            a_brake = a_limits[i] * decel_factor
+            dist = (v**2) / (2 * a_brake) * np.sign(v)
+            q_end[i] = q_release[i] + dist
+            
+        # Clamp to joint limits
+        lower, upper = franka_ik.JOINT_LIMITS[i]
+        q_end[i] = np.clip(q_end[i], lower + 0.05, upper - 0.05) # Add small margin
+
+    # 3. Phase 1: Start -> Release
+    print("Planning Phase 1: Approach...")
+    T1_joints = []
+    for i in range(7):
+        T = find_min_duration(
+            q_start[i], dq_start[i], ddq_start[i],
+            q_release[i], dq_release[i], ddq_release[i],
+            (v_limits[i], a_limits[i], j_limits[i])
+        )
+        T1_joints.append(T)
+    
+    T1 = max(T1_joints)
+    print(f"Phase 1 Duration: {T1:.4f} s")
+    
+    # 4. Phase 2: Release -> Stop (Return to Neutral)
+    print("Planning Phase 2: Deceleration/Return...")
+    T2_joints = []
+    for i in range(7):
+        T = find_min_duration(
+            q_release[i], dq_release[i], ddq_release[i],
+            q_end[i], dq_end[i], ddq_end[i],
+            (v_limits[i], a_limits[i], j_limits[i])
+        )
+        T2_joints.append(T)
+        
+    T2 = max(T2_joints)
+    print(f"Phase 2 Duration: {T2:.4f} s")
+    
+    # 5. Generate Full Trajectory
+    freq = 240.0
+    dt = 1.0 / freq
+    
+    full_traj_data = []
+    
+    # Phase 1 Generation
+    coeffs1 = []
+    for i in range(7):
+        c = get_quintic_coeffs(
+            q_start[i], dq_start[i], ddq_start[i],
+            q_release[i], dq_release[i], ddq_release[i],
+            T1
+        )
+        coeffs1.append(c)
+        
+    steps1 = int(np.ceil(T1 * freq))
+    for step in range(steps1):
+        t = step * dt
+        q_t = []
+        for i in range(7):
+            q, _, _, _ = evaluate_quintic(coeffs1[i], t)
+            q_t.append(q)
+        full_traj_data.append({"Joint": q_t})
+        
+    # Phase 2 Generation
+    coeffs2 = []
+    for i in range(7):
+        c = get_quintic_coeffs(
+            q_release[i], dq_release[i], ddq_release[i],
+            q_end[i], dq_end[i], ddq_end[i],
+            T2
+        )
+        coeffs2.append(c)
+        
+    steps2 = int(np.ceil(T2 * freq))
+    for step in range(steps2):
+        t = step * dt
+        q_t = []
+        for i in range(7):
+            q, _, _, _ = evaluate_quintic(coeffs2[i], t)
+            q_t.append(q)
+        full_traj_data.append({"Joint": q_t})
+        
+    # Add final point explicitly to ensure we hit exactly
+    full_traj_data.append({"Joint": q_end.tolist()})
+    
+    # 6. Save
+    output_path = os.path.join(traj_dir, 'full_throw_trajectory.json')
+    with open(output_path, 'w') as f:
+        json.dump(full_traj_data, f, indent=4)
+        
+    print(f"Trajectory saved to {output_path}")
+    print(f"Total points: {len(full_traj_data)}")
+
+if __name__ == "__main__":
+    generate_trajectory()

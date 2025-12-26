@@ -59,7 +59,7 @@ fn main() -> Result<()> {
         physics.step()?;
     }
     // 根据json文件运动
-    robot.move_traj_from_file("./traj/trajectory.json")?;
+    robot.move_traj_from_file("./traj/full_throw_trajectory.json")?;
     // robot.move_traj_from_file("./traj/ik_result.json")?;
     loop {
         physics.step()?;
