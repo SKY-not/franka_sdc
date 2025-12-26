@@ -26,6 +26,22 @@ def solve_throw_configuration(target_position, initial_q=None):
     g = np.array([0, 0, -9.81])
     target_pos = np.array(target_position)
     
+    # Transformation from Link 7 to Grasp Target
+    # Link 7 -> Link 8 (Flange): Trans(0, 0, 0.107)
+    # Link 8 -> Hand: RotZ(-45 deg)
+    # Hand -> Grasp: Trans(0, 0, 0.105)
+    # Total: Trans(0, 0, 0.212) * RotZ(-45 deg)
+    alpha = -np.pi / 4
+    ca = np.cos(alpha)
+    sa = np.sin(alpha)
+    
+    T_7_to_grasp = np.array([
+        [ca, -sa, 0, 0],
+        [sa, ca, 0, 0],
+        [0, 0, 1, 0.212],
+        [0, 0, 0, 1]
+    ])
+    
     # Bounds
     q_bounds = franka_ik.JOINT_LIMITS
     dq_bounds = [(-v, v) for v in config.JOINT_VEL_BOUND]
@@ -52,32 +68,51 @@ def solve_throw_configuration(target_position, initial_q=None):
     
     def objective(x):
         q, dq, t = unpack_x(x)
-        # Minimize joint velocities (energy) and maybe prefer shorter flight times?
-        # Or just minimize velocity norm.
+        # Minimize joint velocities (energy)
         return np.sum(dq**2)
     
+    def calculate_release_state(q, dq):
+        # Forward Kinematics for Link 7
+        T_7 = franka_ik.forward_kinematics(q)
+        # Transform to Grasp Target
+        T_grasp = T_7 @ T_7_to_grasp
+        P_release = T_grasp[:3, 3]
+        
+        # Jacobian for Link 7
+        J = franka_ik.calculate_jacobian(q)
+        V_link7 = (J @ dq)[:3]
+        W_link7 = (J @ dq)[3:]
+        
+        # Velocity at Grasp Target
+        # v_grasp = v_link7 + w_link7 x r
+        r = P_release - T_7[:3, 3]
+        V_release = V_link7 + np.cross(W_link7, r)
+        
+        return P_release, V_release, T_grasp
+
     def ballistic_constraint(x):
         q, dq, t = unpack_x(x)
+        P_release, V_release, _ = calculate_release_state(q, dq)
         
-        # Forward Kinematics for Release Position
-        T_release = franka_ik.forward_kinematics(q)
-        P_release = T_release[:3, 3]
-        
-        # Jacobian for Release Velocity
-        J = franka_ik.calculate_jacobian(q)
-        # Linear velocity of end effector
-        V_release = (J @ dq)[:3]
-        
-        # Projectile motion equation: P_target = P_release + V_release * t + 0.5 * g * t^2
-        # Residual = P_release + V_release * t + 0.5 * g * t^2 - P_target
+        # Projectile motion equation
         P_impact = P_release + V_release * t + 0.5 * g * t**2
         
         return P_impact - target_pos
 
+    def orientation_constraint(x):
+        q, dq, t = unpack_x(x)
+        _, V_release, T_grasp = calculate_release_state(q, dq)
+        
+        # Y-axis of the hand frame (direction of finger movement)
+        Y_hand = T_grasp[:3, 1]
+        
+        # Velocity should be perpendicular to finger movement to avoid collision
+        return np.dot(V_release, Y_hand)
+
     # Constraints dictionary for SLSQP
-    # Equality constraint: ballistic_constraint(x) == 0
     constraints = [
-        {'type': 'eq', 'fun': lambda x: ballistic_constraint(x)}
+        {'type': 'eq', 'fun': ballistic_constraint},
+        {'type': 'eq', 'fun': orientation_constraint}
     ]
     
     print(f"Optimization started for target: {target_pos}")
@@ -95,11 +130,7 @@ def solve_throw_configuration(target_position, initial_q=None):
     if result.success:
         q_sol, dq_sol, t_sol = unpack_x(result.x)
         
-        # Calculate final release state for verification
-        T_release = franka_ik.forward_kinematics(q_sol)
-        P_release = T_release[:3, 3]
-        J = franka_ik.calculate_jacobian(q_sol)
-        V_release = (J @ dq_sol)[:3]
+        P_release, V_release, T_grasp = calculate_release_state(q_sol, dq_sol)
         
         print("\nOptimization Successful!")
         print(f"Flight Time: {t_sol:.4f} s")
