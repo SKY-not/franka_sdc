@@ -50,15 +50,40 @@ def evaluate_quintic(coeffs, t):
     return q, v, a, j
 
 def check_limits(coeffs, T, v_max, a_max, j_max):
-    num_samples = 50
-    times = np.linspace(0, T, num_samples)
+    # Diff-based check at control frequency (1000Hz)
+    dt = 0.001
+    # Generate time steps
+    steps = int(np.ceil(T / dt)) + 2 
+    times = np.arange(steps) * dt
+
+    # Vectorized evaluation of q
+    c0, c1, c2, c3, c4, c5 = coeffs
     
-    for t in times:
-        _, v, a, j = evaluate_quintic(coeffs, t)
-        if abs(v) > v_max + 1e-4: return False
-        if abs(a) > a_max + 1e-4: return False
-        if abs(j) > j_max + 1e-4: return False
-        
+    t = times
+    t2 = t*t
+    t3 = t2*t
+    t4 = t3*t
+    t5 = t4*t
+    
+    q = c0 + c1*t + c2*t2 + c3*t3 + c4*t4 + c5*t5
+
+    # Velocity (central diff using np.gradient which matches the manual implementation)
+    v = np.gradient(q, dt)
+    
+    # Acceleration
+    a = np.gradient(v, dt)
+    
+    # Jerk
+    j = np.gradient(a, dt)
+
+    # Strict constraint checks
+    if np.any(np.abs(v) > v_max):
+        return False
+    if np.any(np.abs(a) > a_max):
+        return False
+    if np.any(np.abs(j) > j_max):
+        return False
+
     return True
 
 def find_min_duration(q0, v0, a0, q1, v1, a1, limits):
@@ -68,15 +93,17 @@ def find_min_duration(q0, v0, a0, q1, v1, a1, limits):
     # Heuristic start T
     T = 0.1
     if limits[0] > 0: T = max(T, dist / limits[0])
+    if limits[1] > 0: T = max(T, np.sqrt(dist / limits[1]))
+    if limits[2] > 0: T = max(T, np.power(dist / limits[2], 1/3))
     
-    dt = 0.05
+    dt_search = 0.01 # Coarser search step for performance
     max_T = 30.0
     
     while T < max_T:
         coeffs = get_quintic_coeffs(q0, v0, a0, q1, v1, a1, T)
         if check_limits(coeffs, T, *limits):
             return T
-        T += dt
+        T += dt_search
         
     print(f"Warning: Could not find valid T within {max_T}s")
     return max_T
@@ -98,7 +125,8 @@ def generate_trajectory():
     
     # 2. Define States
     # Initial State (Neutral)
-    q_start = np.array([0.0, 0.0, 0.0, -1.5, 0.0, 1.5, 0.0])
+    # q_start = np.array([0.0, 0.0, 0.0, -1.5, 0.0, 1.5, 0.0])
+    q_start = config.DEFAULT_JOINT
     dq_start = np.zeros(7)
     ddq_start = np.zeros(7)
     
@@ -117,8 +145,15 @@ def generate_trajectory():
     a_limits = config.JOINT_ACC_BOUND
     j_limits = config.JOINT_JERK_BOUND
     
+    # PLANNING SCALING: Use stricter limits for planning to ensure safety margin
+    PLANNING_SCALE = config.SAFETY_FACTOR
+    v_plan = v_limits * PLANNING_SCALE
+    a_plan = a_limits * PLANNING_SCALE
+    j_plan = j_limits * PLANNING_SCALE
+
     # Calculate Natural Stopping Position for Phase 2
-    decel_factor = 0.8 # Use 80% of max acceleration for braking
+    decel_factor = config.SAFETY_FACTOR
+    # decel_factor = 0.8 # Use 80% of max acceleration for braking
     for i in range(7):
         v = dq_release[i]
         if abs(v) < 1e-4:
@@ -138,32 +173,51 @@ def generate_trajectory():
     print("Planning Phase 1: Approach...")
     T1_joints = []
     for i in range(7):
+        # Adjust planning limits to accommodate boundary conditions
+        v_local_limit = max(v_plan[i], abs(dq_start[i]), abs(dq_release[i]))
+        a_local_limit = max(a_plan[i], abs(ddq_start[i]), abs(ddq_release[i]))
+        
+        # Ensure we don't exceed absolute hard limits
+        v_local_limit = min(v_local_limit, v_limits[i])
+        a_local_limit = min(a_local_limit, a_limits[i])
+
         T = find_min_duration(
             q_start[i], dq_start[i], ddq_start[i],
             q_release[i], dq_release[i], ddq_release[i],
-            (v_limits[i], a_limits[i], j_limits[i])
+            (v_local_limit, a_local_limit, j_plan[i])
         )
         T1_joints.append(T)
     
     T1 = max(T1_joints)
+    # Round up to next ms to align with control frequency
+    T1 = np.ceil(T1 * 1000) / 1000.0
     print(f"Phase 1 Duration: {T1:.4f} s")
     
     # 4. Phase 2: Release -> Stop (Return to Neutral)
     print("Planning Phase 2: Deceleration/Return...")
     T2_joints = []
     for i in range(7):
+        # Adjust planning limits to accommodate boundary conditions
+        v_local_limit = max(v_plan[i], abs(dq_release[i]), abs(dq_end[i]))
+        a_local_limit = max(a_plan[i], abs(ddq_release[i]), abs(ddq_end[i]))
+        
+        v_local_limit = min(v_local_limit, v_limits[i])
+        a_local_limit = min(a_local_limit, a_limits[i])
+
         T = find_min_duration(
             q_release[i], dq_release[i], ddq_release[i],
             q_end[i], dq_end[i], ddq_end[i],
-            (v_limits[i], a_limits[i], j_limits[i])
+            (v_local_limit, a_local_limit, j_plan[i])
         )
         T2_joints.append(T)
         
     T2 = max(T2_joints)
+    # Round up to next ms
+    T2 = np.ceil(T2 * 1000) / 1000.0
     print(f"Phase 2 Duration: {T2:.4f} s")
     
     # 5. Generate Full Trajectory
-    freq = 240.0
+    freq = 1000.0
     dt = 1.0 / freq
     
     full_traj_data = []
@@ -216,6 +270,44 @@ def generate_trajectory():
         
     print(f"Trajectory saved to {output_path}")
     print(f"Total points: {len(full_traj_data)}")
+
+    # 7. Final Verification
+    print("\nVerifying generated trajectory against FULL limits...")
+    q_all = np.array([d['Joint'] for d in full_traj_data])
+    n_points = len(q_all)
+    
+    # Finite differences
+    v_all = np.zeros_like(q_all)
+    v_all[1:-1] = (q_all[2:] - q_all[:-2]) / (2 * dt)
+    v_all[0] = (q_all[1] - q_all[0]) / dt
+    v_all[-1] = (q_all[-1] - q_all[-2]) / dt
+    
+    a_all = np.zeros_like(v_all)
+    a_all[1:-1] = (v_all[2:] - v_all[:-2]) / (2 * dt)
+    a_all[0] = (v_all[1] - v_all[0]) / dt
+    a_all[-1] = (v_all[-1] - v_all[-2]) / dt
+    
+    j_all = np.zeros_like(a_all)
+    j_all[1:-1] = (a_all[2:] - a_all[:-2]) / (2 * dt)
+    j_all[0] = (a_all[1] - a_all[0]) / dt
+    j_all[-1] = (a_all[-1] - a_all[-2]) / dt
+    
+    passed = True
+    for i in range(7):
+        if np.max(np.abs(v_all[:, i])) > v_limits[i]:
+            print(f"FAIL: Joint {i+1} Velocity violation! Max: {np.max(np.abs(v_all[:, i])):.4f} > {v_limits[i]:.4f}")
+            passed = False
+        if np.max(np.abs(a_all[:, i])) > a_limits[i]:
+            print(f"FAIL: Joint {i+1} Acceleration violation! Max: {np.max(np.abs(a_all[:, i])):.4f} > {a_limits[i]:.4f}")
+            passed = False
+        if np.max(np.abs(j_all[:, i])) > j_limits[i]:
+            print(f"FAIL: Joint {i+1} Jerk violation! Max: {np.max(np.abs(j_all[:, i])):.4f} > {j_limits[i]:.4f}")
+            passed = False
+            
+    if passed:
+        print("VERIFICATION PASSED: Trajectory is safe.")
+    else:
+        print("VERIFICATION FAILED: Trajectory violates limits!")
 
 if __name__ == "__main__":
     generate_trajectory()

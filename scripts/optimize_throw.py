@@ -152,7 +152,7 @@ def solve_throw_configuration(target_position, initial_q=None):
 
 if __name__ == "__main__":
     # Example Target
-    target = [1.4, 0.0, 0.0] # x, y, z
+    target = [1.2, 0.0, 0.0] # x, y, z
     print(f"dist: {np.linalg.norm(target)}")
     
     # You can change the target here or pass it via command line args if needed

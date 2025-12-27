@@ -63,7 +63,7 @@ fn main() -> Result<()> {
     // robot.move_traj_from_file("./traj/ik_result.json")?;
     loop {
         physics.step()?;
-        sleep(Duration::from_secs_f64(1. / 240.));
+        sleep(Duration::from_secs_f64(1. / 1000.));
     }
     // Ok(())
 }
