@@ -23,10 +23,10 @@ fn main() -> Result<()> {
     println!("Gripper initialized!");
 
     // 加载机械臂轨迹
-    let file = File::open("./examples/full_throw_trajectory.json")?;
+    let file = File::open("./traj/full_throw_trajectory.json")?;
     let traj: Vec<MotionType<7>> = serde_json::from_reader(file)?;
     // 加载夹爪轨迹
-    let file = File::open("./examples/gripper.json")?;
+    let file = File::open("./traj/gripper.json")?;
     let gripper_traj: Vec<bool> = serde_json::from_reader(file)?;
     // 夹爪与机械臂轨迹点数应相同
     assert_eq!(traj.len(), gripper_traj.len());

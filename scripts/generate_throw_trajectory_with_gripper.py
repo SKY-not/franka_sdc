@@ -111,6 +111,27 @@ def find_min_duration(q0, v0, a0, q1, v1, a1, limits, q_limits):
     print(f"Warning: Could not find valid T within {max_T}s")
     return max_T
 
+def check_cartesian_limits(coeffs, T):
+    dt = 0.01
+    steps = int(np.ceil(T / dt))
+    
+    for step in range(steps + 1):
+        t = step * dt
+        if t > T: t = T
+        
+        q_t = []
+        for i in range(7):
+            q, _, _, _ = evaluate_quintic(coeffs[i], t)
+            q_t.append(q)
+            
+        T_ee = franka_ik.forward_kinematics(q_t)
+        z = T_ee[2, 3]
+        
+        if z < 0.05:
+            return False, t, z
+            
+    return True, 0, 0
+
 def generate_trajectory():
     # 1. Load Plan
     traj_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'traj')
@@ -193,6 +214,29 @@ def generate_trajectory():
     T1 = max(T1_joints)
     # Round up to next ms to align with control frequency
     T1 = np.ceil(T1 * 1000) / 1000.0
+
+    # Validate Phase 1 Cartesian limits
+    print("Validating Phase 1 Cartesian limits...")
+    while True:
+        coeffs1 = []
+        for i in range(7):
+            c = get_quintic_coeffs(
+                q_start[i], dq_start[i], ddq_start[i],
+                q_release[i], dq_release[i], ddq_release[i],
+                T1
+            )
+            coeffs1.append(c)
+            
+        valid, t_fail, z_fail = check_cartesian_limits(coeffs1, T1)
+        if valid:
+            break
+            
+        print(f"Phase 1 collision detected at t={t_fail:.3f}s (z={z_fail:.4f}m). Increasing T1...")
+        T1 += 0.1
+        if T1 > 30.0:
+            print("Warning: Phase 1 duration exceeded 30s, proceeding with risk of collision.")
+            break
+
     print(f"Phase 1 Duration: {T1:.4f} s")
     
     # 4. Phase 2: Release -> Stop (Return to Neutral)
@@ -217,6 +261,29 @@ def generate_trajectory():
     T2 = max(T2_joints)
     # Round up to next ms
     T2 = np.ceil(T2 * 1000) / 1000.0
+
+    # Validate Phase 2 Cartesian limits
+    print("Validating Phase 2 Cartesian limits...")
+    while True:
+        coeffs2 = []
+        for i in range(7):
+            c = get_quintic_coeffs(
+                q_release[i], dq_release[i], ddq_release[i],
+                q_end[i], dq_end[i], ddq_end[i],
+                T2
+            )
+            coeffs2.append(c)
+            
+        valid, t_fail, z_fail = check_cartesian_limits(coeffs2, T2)
+        if valid:
+            break
+            
+        print(f"Phase 2 collision detected at t={t_fail:.3f}s (z={z_fail:.4f}m). Increasing T2...")
+        T2 += 0.1
+        if T2 > 30.0:
+            print("Warning: Phase 2 duration exceeded 30s, proceeding with risk of collision.")
+            break
+
     print(f"Phase 2 Duration: {T2:.4f} s")
     
     # 5. Generate Full Trajectory
