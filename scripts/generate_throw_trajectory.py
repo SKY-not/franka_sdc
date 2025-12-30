@@ -126,7 +126,8 @@ def generate_trajectory():
     # 2. Define States
     # Initial State (Neutral)
     # q_start = np.array([0.0, 0.0, 0.0, -1.5, 0.0, 1.5, 0.0])
-    q_start = config.DEFAULT_JOINT
+    # q_start = config.DEFAULT_JOINT
+    q_start = config.START_JOINT
     dq_start = np.zeros(7)
     ddq_start = np.zeros(7)
     
