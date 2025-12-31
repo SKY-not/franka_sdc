@@ -11,6 +11,7 @@ import config
 def verify_trajectory():
     # 1. Load Trajectory
     traj_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'traj', 'full_throw_trajectory.json')
+    # traj_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'traj', 'throw_plan.json')
     
     if not os.path.exists(traj_path):
         print(f"Error: {traj_path} not found.")

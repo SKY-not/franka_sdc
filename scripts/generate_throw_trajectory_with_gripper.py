@@ -127,7 +127,7 @@ def check_cartesian_limits(coeffs, T):
         T_ee = franka_ik.forward_kinematics(q_t)
         z = T_ee[2, 3]
         
-        if z < 0.05:
+        if z < 0.0:
             return False, t, z
             
     return True, 0, 0
