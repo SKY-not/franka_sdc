@@ -15,6 +15,33 @@ except ImportError:
 
 import config
 
+def calculate_T_acc(dq_release):
+    """
+    Calculates the acceleration time required to reach dq_release from rest.
+    """
+    v_max = config.JOINT_VEL_BOUND
+    a_max = config.JOINT_ACC_BOUND
+    j_max = config.JOINT_JERK_BOUND
+    
+    T_acc_req = np.zeros(7)
+    for i in range(7):
+        v = abs(dq_release[i])
+        if v < 1e-6:
+            continue
+        t_a = 1.875 * v / a_max[i]
+        t_j = np.sqrt(5.7735 * v / j_max[i])
+        T_acc_req[i] = max(t_a, t_j)
+        
+    T_acc = np.max(T_acc_req)
+    # Add some safety margin and ensure min time
+    T_acc = max(T_acc * 1.5, 0.5)
+    
+    # Round T_acc to nearest dt
+    dt = 0.001 # 1000Hz
+    T_acc = np.ceil(T_acc / dt) * dt
+    
+    return T_acc
+
 def solve_planar_throw(target_pos):
     """
     Calculates joint angles and velocities for a planar throw.
@@ -60,7 +87,11 @@ def solve_planar_throw(target_pos):
         np.array([0.5, -1.5, 0.5, 0.6]),   # 3. Forward release: Higher arc
         np.array([0.0, -1.0, 2.0, 0.3]),   # 4. Different elbow config
         np.array([-0.8, -0.8, 0.8, 0.4]),  # 5. More aggressive back swing
-        np.array([0.2, -1.8, 1.8, 0.7])    # 6. High lob
+        np.array([0.2, -1.8, 1.8, 0.7]),   # 6. High lob
+        np.array([-0.3, -1.2, 1.8, 0.5]),  # 7. New guess
+        np.array([0.3, -1.6, 1.2, 0.6]),   # 8. New guess
+        np.array([-0.6, -0.9, 1.5, 0.45]), # 9. New guess
+        np.array([0.1, -1.4, 2.0, 0.55])   # 10. New guess
     ]
     
     # Bounds
@@ -170,16 +201,48 @@ def solve_planar_throw(target_pos):
         # All velocities must be within limits (factor 1.0, safety handled in limits)
         # We used safety factor in franka_ik, so we can use 1.0 here relative to that.
         # Return positive if valid
-        return 1.0 - np.abs(dq_planar / vel_limits)
+        return 0.98 - np.abs(dq_planar / vel_limits)
         
     def constraint_throw_direction(params):
         # Ensure we are throwing towards the target
         q, dq_planar, r_rel, z_rel = compute_kinematics(params)
         return r_target - r_rel - 0.2 # At least 20cm away
+
+    def constraint_height(params):
+        # Ensure release point is above ground
+        q, dq_planar, r_rel, z_rel = compute_kinematics(params)
+        return z_rel - 0.1 # Minimum 10cm height
+
+    def constraint_start_height(params):
+        # Ensure start point of trajectory is above ground
+        q, dq_planar, r_rel, z_rel = compute_kinematics(params)
+        
+        # Construct full dq
+        dq = np.zeros(7)
+        dq[1] = dq_planar[0]
+        dq[3] = dq_planar[1]
+        dq[5] = dq_planar[2]
+        
+        T_acc = calculate_T_acc(dq)
+        
+        # q_start
+        delta_q_acc = 0.5 * dq * T_acc
+        q_start = q - delta_q_acc
+        
+        # Check FK
+        T_mat = franka_ik.forward_kinematics(q_start)
+        r_vec = T_mat[:3, 2] * tcp_offset_z
+        pos = T_mat[:3, 3] + r_vec
+        
+        # Return margin (pos[2] - min_height)
+        # We want pos[2] >= 0.05 (5cm safety)
+        return pos[2] - 0.05
         
     cons = [
         {'type': 'ineq', 'fun': constraint_vel},
-        {'type': 'ineq', 'fun': constraint_throw_direction}
+        {'type': 'ineq', 'fun': constraint_throw_direction},
+        {'type': 'ineq', 'fun': constraint_height},
+        {'type': 'ineq', 'fun': constraint_start_height}
     ]
     
     # Run optimization with multi-start
@@ -292,23 +355,8 @@ def generate_full_trajectory(q_release, dq_release):
     # Max a = 1.875 * v / T
     # Max j = 5.7735 * v / T^2
     
-    T_acc_req = np.zeros(7)
-    for i in range(7):
-        v = abs(dq_release[i])
-        if v < 1e-6:
-            continue
-        # t_v = 0 # Velocity limit is satisfied by definition if v < v_max
-        t_a = 1.875 * v / a_max[i]
-        t_j = np.sqrt(5.7735 * v / j_max[i])
-        T_acc_req[i] = max(t_a, t_j)
-        
-    T_acc = np.max(T_acc_req)
-    # Add some safety margin and ensure min time
-    T_acc = max(T_acc * 1.5, 0.5)
-    
-    # Round T_acc to nearest dt to ensure consistent time steps for verification
+    T_acc = calculate_T_acc(dq_release)
     dt = 0.001 # 1000Hz
-    T_acc = np.ceil(T_acc / dt) * dt
     
     # 2. Calculate q_start
     # Delta q = 0.5 * v * T
@@ -405,7 +453,7 @@ def generate_full_trajectory(q_release, dq_release):
 
 if __name__ == "__main__":
     # Test case
-    target = [0.9, -0.3, 0.2]
+    target = [1.2, 0, 0.3]
     if len(sys.argv) > 3:
         target = [float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])]
 

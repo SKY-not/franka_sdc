@@ -1,17 +1,23 @@
 import json
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import os
 import sys
 
-# Add script dir to path to import config
+# Add script dir to path to import config and franka_ik
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import config
+try:
+    import franka_ik
+except ImportError:
+    # Fallback if running from root
+    sys.path.append(os.path.join(os.getcwd(), 'scripts'))
+    import franka_ik
 
 def verify_trajectory():
     # 1. Load Trajectory
     traj_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'traj', 'full_throw_trajectory.json')
-    # traj_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'traj', 'throw_plan.json')
     
     if not os.path.exists(traj_path):
         print(f"Error: {traj_path} not found.")
@@ -73,53 +79,63 @@ def verify_trajectory():
         print(f"J{i+1:<5} | Jerk  | {j_max:<10.4f} | {j_lim[i]:<10.4f} | {j_ratio:<7.1f}% | {j_status}")
         print("-" * 80)
 
-    if passed:
-        print("\nSUCCESS: All constraints satisfied.")
-    else:
-        print("\nFAILURE: Some constraints violated.")
-
-    # 4. Plotting - Separate plots for V, A, J
-    # We will create 3 figures, each with 7 subplots
+    # 4. Check Ground Collision (TCP Position)
+    print("\nChecking for ground collision...")
+    tcp_positions = []
+    tcp_offset_z = 0.212 # From planar_throw.py
+    min_z = float('inf')
+    collision_detected = False
     
-    # Plot Velocity
-    fig_v, axes_v = plt.subplots(n_joints, 1, figsize=(10, 15), sharex=True)
-    fig_v.suptitle('Joint Velocities', fontsize=16)
-    for i in range(n_joints):
-        axes_v[i].plot(time, v[:, i], label=f'J{i+1}')
-        axes_v[i].axhline(y=v_lim[i], color='r', linestyle='--', alpha=0.5)
-        axes_v[i].axhline(y=-v_lim[i], color='r', linestyle='--', alpha=0.5)
-        axes_v[i].set_ylabel(f'J{i+1} (rad/s)')
-        axes_v[i].grid(True)
-        axes_v[i].legend(loc='upper right')
-    axes_v[-1].set_xlabel('Time (s)')
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    for k in range(n_points):
+        T_mat = franka_ik.forward_kinematics(q[k])
+        r_vec = T_mat[:3, 2] * tcp_offset_z
+        pos = T_mat[:3, 3] + r_vec
+        tcp_positions.append(pos)
+        
+        if pos[2] < min_z:
+            min_z = pos[2]
+        
+        if pos[2] < 0.0:
+            collision_detected = True
+            
+    tcp_positions = np.array(tcp_positions)
+    
+    print(f"Minimum TCP Height: {min_z:.4f} m")
+    if collision_detected:
+        print("FAILURE: Ground collision detected!")
+        passed = False
+    else:
+        print("SUCCESS: No ground collision detected.")
 
-    # Plot Acceleration
-    fig_a, axes_a = plt.subplots(n_joints, 1, figsize=(10, 15), sharex=True)
-    fig_a.suptitle('Joint Accelerations', fontsize=16)
-    for i in range(n_joints):
-        axes_a[i].plot(time, a[:, i], label=f'J{i+1}', color='orange')
-        axes_a[i].axhline(y=a_lim[i], color='r', linestyle='--', alpha=0.5)
-        axes_a[i].axhline(y=-a_lim[i], color='r', linestyle='--', alpha=0.5)
-        axes_a[i].set_ylabel(f'J{i+1} (rad/s^2)')
-        axes_a[i].grid(True)
-        axes_a[i].legend(loc='upper right')
-    axes_a[-1].set_xlabel('Time (s)')
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    if passed:
+        print("\nOVERALL SUCCESS: All constraints satisfied.")
+    else:
+        print("\nOVERALL FAILURE: Some constraints violated.")
 
-    # Plot Jerk
-    fig_j, axes_j = plt.subplots(n_joints, 1, figsize=(10, 15), sharex=True)
-    fig_j.suptitle('Joint Jerks', fontsize=16)
-    for i in range(n_joints):
-        axes_j[i].plot(time, j[:, i], label=f'J{i+1}', color='green')
-        axes_j[i].axhline(y=j_lim[i], color='r', linestyle='--', alpha=0.5)
-        axes_j[i].axhline(y=-j_lim[i], color='r', linestyle='--', alpha=0.5)
-        axes_j[i].set_ylabel(f'J{i+1} (rad/s^3)')
-        axes_j[i].grid(True)
-        axes_j[i].legend(loc='upper right')
-    axes_j[-1].set_xlabel('Time (s)')
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-
+    # 5. Plotting
+    # Plot 3D Trajectory
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot(tcp_positions[:, 0], tcp_positions[:, 1], tcp_positions[:, 2], label='TCP Trajectory', linewidth=2)
+    
+    # Plot start and end
+    ax.scatter(tcp_positions[0, 0], tcp_positions[0, 1], tcp_positions[0, 2], c='g', marker='o', s=50, label='Start')
+    ax.scatter(tcp_positions[-1, 0], tcp_positions[-1, 1], tcp_positions[-1, 2], c='r', marker='x', s=50, label='End')
+    
+    # Plot ground plane
+    x_min, x_max = np.min(tcp_positions[:, 0]), np.max(tcp_positions[:, 0])
+    y_min, y_max = np.min(tcp_positions[:, 1]), np.max(tcp_positions[:, 1])
+    margin = 0.2
+    xx, yy = np.meshgrid(np.linspace(x_min-margin, x_max+margin, 10), np.linspace(y_min-margin, y_max+margin, 10))
+    zz = np.zeros_like(xx)
+    ax.plot_surface(xx, yy, zz, alpha=0.2, color='gray')
+    
+    ax.set_xlabel('X (m)')
+    ax.set_ylabel('Y (m)')
+    ax.set_zlabel('Z (m)')
+    ax.set_title('End-Effector Trajectory')
+    ax.legend()
+    
     plt.show()
 
 if __name__ == "__main__":
