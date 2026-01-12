@@ -289,15 +289,15 @@ def solve_planar_throw(target_pos):
         v_local = R_7.T @ v_release
         
         # 3. Solve for q7
-        # y_hand_local = [cos(q7 - pi/4), sin(q7 - pi/4), 0]
-        # We want y_hand_local . v_local = 0
-        # This implies y_hand_local is perpendicular to v_local_xy
-        # angle(y_hand) = angle(v_local) + pi/2
-        # q7 - pi/4 = atan2(v_y, v_x) + pi/2
-        # q7 = atan2(v_y, v_x) + 3*pi/4
+        # We want the line connecting the fingers (y_hand) to be perpendicular to the release velocity.
+        # This prevents the fingers from blocking the object path.
+        # y_hand is perpendicular to v_release => x_hand is parallel to v_release.
+        # x_hand_local angle is (q7 - pi/4).
+        # So q7 - pi/4 = angle(v_local)
+        # q7 = angle(v_local) + pi/4
         
         q7_candidates = []
-        base_angle = np.arctan2(v_local[1], v_local[0]) + 3 * np.pi / 4
+        base_angle = np.arctan2(v_local[1], v_local[0]) + np.pi / 4
         
         # Candidate 1
         q7_1 = base_angle
@@ -453,7 +453,7 @@ def generate_full_trajectory(q_release, dq_release):
 
 if __name__ == "__main__":
     # Test case
-    target = [1.2, 0, 0.3]
+    target = [1.2, 0, 0.0]
     if len(sys.argv) > 3:
         target = [float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])]
 

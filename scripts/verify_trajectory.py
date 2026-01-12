@@ -107,6 +107,66 @@ def verify_trajectory():
     else:
         print("SUCCESS: No ground collision detected.")
 
+    # 5. Check Gripper Orientation at Release (Max Velocity)
+    print("\nChecking Gripper Orientation...")
+    # Find index of max velocity magnitude (Joint space)
+    v_mag = np.linalg.norm(v, axis=1) 
+    idx_max_v = np.argmax(v_mag)
+    
+    q_rel = q[idx_max_v]
+    dq_rel = v[idx_max_v]
+    
+    # Calculate Cartesian Velocity
+    J = franka_ik.calculate_jacobian(q_rel)
+    # TCP Jacobian
+    T_mat = franka_ik.forward_kinematics(q_rel)
+    r_vec = T_mat[:3, 2] * tcp_offset_z
+    J_v_tcp = np.zeros((3, 7))
+    J_v_7 = J[:3, :]
+    J_w_7 = J[3:, :]
+    for k in range(7):
+        J_v_tcp[:, k] = J_v_7[:, k] + np.cross(J_w_7[:, k], r_vec)
+        
+    v_cart = J_v_tcp @ dq_rel
+    v_cart_mag = np.linalg.norm(v_cart)
+    
+    if v_cart_mag > 0.1: # Only check if moving
+        # Hand Orientation
+        # Hand Frame = Link 7 * RotZ(-45)
+        # Hand Y axis = Link 7 * RotZ(-45) * Y
+        # Link 7 orientation is T_mat[:3, :3]
+        
+        alpha = -np.pi/4
+        R_z_alpha = np.array([
+            [np.cos(alpha), -np.sin(alpha), 0],
+            [np.sin(alpha), np.cos(alpha), 0],
+            [0, 0, 1]
+        ])
+        R_hand = T_mat[:3, :3] @ R_z_alpha
+        y_hand = R_hand[:, 1] # Y axis (column 1)
+        
+        # Angle between v_cart and y_hand
+        dot_prod = np.dot(v_cart, y_hand)
+        cos_theta = dot_prod / v_cart_mag
+        theta_rad = np.arccos(np.clip(cos_theta, -1.0, 1.0))
+        theta_deg = np.degrees(theta_rad)
+        
+        print(f"Max Velocity Point (t={time[idx_max_v]:.3f}s):")
+        print(f"  Cartesian Velocity: {v_cart_mag:.3f} m/s")
+        print(f"  Angle between Velocity and Gripper Finger Axis: {theta_deg:.2f} degrees")
+        
+        # We want 90 degrees (perpendicular)
+        if abs(theta_deg - 90) < 10: # Allow 10 deg tolerance
+            print("  STATUS: OK (Perpendicular)")
+        elif abs(theta_deg - 0) < 10 or abs(theta_deg - 180) < 10:
+            print("  STATUS: WARNING (Parallel - Potential Jamming!)")
+            passed = False # Mark as failed if jamming risk
+        else:
+            print(f"  STATUS: Intermediate Angle ({theta_deg:.1f} deg)")
+            
+    else:
+        print("Max velocity too low to check orientation.")
+
     if passed:
         print("\nOVERALL SUCCESS: All constraints satisfied.")
     else:
