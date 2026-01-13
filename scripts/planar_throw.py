@@ -83,7 +83,7 @@ def solve_planar_throw(target_pos):
     # Format: [q2, q4, q6, T]
     initial_guesses = [
         np.array([0.0, -1.5, 1.5, 0.5]),   # 1. Default: Neutral
-        np.array([-0.5, -1.0, 1.0, 0.4]),  # 2. Cocked back: Faster throw
+        # np.array([-0.5, -1.0, 1.0, 0.4]),  # 2. Cocked back: Faster throw
         np.array([0.5, -1.5, 0.5, 0.6]),   # 3. Forward release: Higher arc
         np.array([0.0, -1.0, 2.0, 0.3]),   # 4. Different elbow config
         np.array([-0.8, -0.8, 0.8, 0.4]),  # 5. More aggressive back swing
@@ -454,7 +454,11 @@ def generate_full_trajectory(q_release, dq_release):
 
 if __name__ == "__main__":
     # Test case
-    target = [0.8, 0.6, 0.2]
+    target = [1.212, 0.153, 0.0]
+    # target = [1.128, -0.41, 0.0]
+    # dis = 1.2
+    # th = - np.pi / 12
+    # target = [dis*np.cos(th), dis*np.sin(th), 0]
     if len(sys.argv) > 3:
         target = [float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])]
 
@@ -489,7 +493,7 @@ if __name__ == "__main__":
 
         # 3. Save Gripper Trajectory
         gripper_path = os.path.join(traj_dir, 'gripper.json')
-        rel_idx = res["release_index"]
+        rel_idx = res["release_index"] - 160
         total_len = len(full_traj_data)
         # True before release index, False at and after
         gripper_data = [True] * rel_idx + [False] * (total_len - rel_idx)
@@ -497,3 +501,31 @@ if __name__ == "__main__":
         with open(gripper_path, 'w') as f:
             json.dump(gripper_data, f, indent=4)
         print(f"Gripper trajectory saved to {gripper_path}")
+        
+        print("Starting Rust program...")   
+        import subprocess
+        # 获取项目根目录
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # rust_command = ["cargo", "run", "--example", "sim_only_physics_franka"]
+        rust_command = ["cargo", "run", "--release", "--example", "impedance_control_gripper"]
+        
+        # 选项 2: 运行主程序
+        # rust_command = ["cargo", "run"]
+        # 选项 3: 运行 release 版本（更快）
+        # rust_command = ["cargo", "run", "--release", "--example", "sim_only_physics_franka"]
+        
+        try:
+            # 在项目根目录执行 Rust 命令
+            result = subprocess.run(
+                rust_command,
+                cwd=project_root,
+                check=True,
+                capture_output=False  # 设置为 False 以实时显示输出
+            )
+            print(f"\nRust program completed successfully (exit code: {result.returncode})")
+        except subprocess.CalledProcessError as e:
+            print(f"\nRust program failed with exit code: {e.returncode}")
+        except FileNotFoundError:
+            print("\nError: 'cargo' command not found. Make sure Rust is installed and in PATH.")
+        except Exception as e:
+            print(f"\nError running Rust program: {e}")

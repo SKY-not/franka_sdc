@@ -1,9 +1,22 @@
 use anyhow::Result;
 use franka_rust::{FrankaEmika, FrankaGripper, types::robot_types::SetCollisionBehaviorData};
 use robot_behavior::{MotionType, behavior::*};
-use std::{fs::File, thread::sleep, time::Duration};
+use std::{
+    fs::File,
+    sync::mpsc,
+    thread::{self, sleep},
+    time::Duration,
+};
 
-const PICK_JOINT: [f64; 7] = [0.5202528356353336, 0.5411086764837565, -0.4750576830733827, -2.292643344417538, 0.10296240303251479, 2.599058195988337, 0.7519023520034467];
+const PICK_JOINT: [f64; 7] = [
+    -0.05281369357958518,
+    0.695931208986985,
+    -0.16886799910084874,
+    -1.971299257378397,
+    0.11255093683167372,
+    2.614595670938492,
+    0.4407429747552498,
+];
 
 fn main() -> Result<()> {
     // 初始化机器人franka
@@ -44,8 +57,19 @@ fn main() -> Result<()> {
     // 运动到轨迹起点，投掷准备
     robot.move_to(traj[0])?;
     println!("ready");
-    robot.move_joint(&PICK_JOINT)?;
-    println!("fuck");
+    // robot.move_joint(&PICK_JOINT)?;
+    // println!("fuck");
+
+    let (tx, rx) = mpsc::channel::<bool>();
+    thread::spawn(move || {
+        if let Ok(re) = rx.recv()
+            && re
+        {
+            println!("Throw");
+            // gripper.homing().unwrap();
+            gripper.move_gripper(1.8, 80.0).unwrap();
+        }
+    });
 
     let handle = robot.joint_impedance_async(
         &[600.0, 600.0, 600.0, 600.0, 250.0, 150.0, 50.0],
@@ -55,23 +79,15 @@ fn main() -> Result<()> {
     for (i, point) in traj.iter().enumerate() {
         if let MotionType::Joint(joint) = point {
             handle.set_target(Some(*joint));
-            // sleep(Duration::from_millis(1));
-            // 控制夹爪
-            // if gripper_traj[i] {
-            //     // true: 夹紧
-            //     gripper.grasp(0.03, 0.1, 1.0).unwrap();
-            // } else {
-            //     // false: 松开
-            //     gripper.move_gripper(0.09, 0.2).unwrap();
-            // }
-            if !gripper_traj[i] {
-                gripper.move_gripper(0.09, 0.2).unwrap();
-                println!("Throw");
+
+            if i > 0 && gripper_traj[i - 1] && !gripper_traj[i] {
+                tx.send(true).unwrap();
+                // println!("Throw");
             }
             sleep(Duration::from_millis(1));
         }
     }
-
+    println!("finished");
     handle.finish();
 
     Ok(())
