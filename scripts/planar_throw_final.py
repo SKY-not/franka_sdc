@@ -1,6 +1,6 @@
 import numpy as np
 import math
-# from scipy.optimize import minimize
+from scipy.optimize import minimize
 from HIK.ball_detector import BallDetector
 import time
 import sys
