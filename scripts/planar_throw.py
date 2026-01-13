@@ -325,14 +325,15 @@ def solve_planar_throw(target_pos):
         print(f"Joint Velocities: {dq_planar}")
         
         # Generate full trajectory (Accel -> Release -> Decel)
-        full_traj = generate_full_trajectory(q, dq)
+        full_traj, release_idx = generate_full_trajectory(q, dq)
         
         return {
             "q": q,
             "dq": dq,
             "t_flight": res.x[3],
             "release_pos": [r_rel * np.cos(q1), r_rel * np.sin(q1), z_rel],
-            "trajectory": full_traj
+            "trajectory": full_traj,
+            "release_index": release_idx
         }
     else:
         print("Optimization failed for all initial guesses.")
@@ -449,11 +450,11 @@ def generate_full_trajectory(q_release, dq_release):
             "ddq": a.tolist()
         })
         
-    return traj_points
+    return traj_points, N_acc
 
 if __name__ == "__main__":
     # Test case
-    target = [1.2, 0, 0.0]
+    target = [0.8, 0.6, 0.2]
     if len(sys.argv) > 3:
         target = [float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])]
 
@@ -485,3 +486,14 @@ if __name__ == "__main__":
         with open(full_traj_path, 'w') as f:
             json.dump(full_traj_data, f, indent=4)
         print(f"Full trajectory saved to {full_traj_path}")
+
+        # 3. Save Gripper Trajectory
+        gripper_path = os.path.join(traj_dir, 'gripper.json')
+        rel_idx = res["release_index"]
+        total_len = len(full_traj_data)
+        # True before release index, False at and after
+        gripper_data = [True] * rel_idx + [False] * (total_len - rel_idx)
+        
+        with open(gripper_path, 'w') as f:
+            json.dump(gripper_data, f, indent=4)
+        print(f"Gripper trajectory saved to {gripper_path}")
