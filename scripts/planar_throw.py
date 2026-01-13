@@ -454,7 +454,7 @@ def generate_full_trajectory(q_release, dq_release):
 
 if __name__ == "__main__":
     # Test case
-    target = [1.212, 0.153, 0.0]
+    target = [1.25, 0, 0.0]
     # target = [1.128, -0.41, 0.0]
     # dis = 1.2
     # th = - np.pi / 12

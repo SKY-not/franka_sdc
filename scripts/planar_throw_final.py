@@ -85,15 +85,15 @@ def solve_planar_throw(target_pos):
     # Format: [q2, q4, q6, T]
     initial_guesses = [
         np.array([0.0, -1.5, 1.5, 0.5]),   # 1. Default: Neutral
-        np.array([-0.5, -1.0, 1.0, 0.4]),  # 2. Cocked back: Faster throw
-        np.array([0.5, -1.5, 0.5, 0.6]),   # 3. Forward release: Higher arc
-        np.array([0.0, -1.0, 2.0, 0.3]),   # 4. Different elbow config
-        np.array([-0.8, -0.8, 0.8, 0.4]),  # 5. More aggressive back swing
-        np.array([0.2, -1.8, 1.8, 0.7]),   # 6. High lob
-        np.array([-0.3, -1.2, 1.8, 0.5]),  # 7. New guess
-        np.array([0.3, -1.6, 1.2, 0.6]),   # 8. New guess
-        np.array([-0.6, -0.9, 1.5, 0.45]), # 9. New guess
-        np.array([0.1, -1.4, 2.0, 0.55])   # 10. New guess
+        # np.array([-0.5, -1.0, 1.0, 0.4]),  # 2. Cocked back: Faster throw
+        # np.array([0.5, -1.5, 0.5, 0.6]),   # 3. Forward release: Higher arc
+        # np.array([0.0, -1.0, 2.0, 0.3]),   # 4. Different elbow config
+        # np.array([-0.8, -0.8, 0.8, 0.4]),  # 5. More aggressive back swing
+        # np.array([0.2, -1.8, 1.8, 0.7]),   # 6. High lob
+        # np.array([-0.3, -1.2, 1.8, 0.5]),  # 7. New guess
+        # np.array([0.3, -1.6, 1.2, 0.6]),   # 8. New guess
+        # np.array([-0.6, -0.9, 1.5, 0.45]), # 9. New guess
+        # np.array([0.1, -1.4, 2.0, 0.55])   # 10. New guess
     ]
     
     # Bounds
@@ -466,13 +466,17 @@ if __name__ == "__main__":
     detector.initialize_camera()
     x, y = detector.get_ball_position(display=False) 
     # Test case
-    target = [x,y,0.0]
+    target = [x/ 1000, y/ 1000, 0.0] 
+    
+    if(target[1] > 1.2):
+        target[1] = 1.2
+    
+    # target = [1.212, 0.153, 0.0]
+    # target = [1.128, -0.41, 0.0]
+    # dis = 1.2
+    # th = - np.pi / 12
+    # target = [dis*np.cos(th), dis*np.sin(th), 0]
     print(target)
-    target = [1.212, 0.153, 0.0]
-    target = [1.128, -0.41, 0.0]
-    dis = 1.2
-    th = - np.pi / 12
-    target = [dis*np.cos(th), dis*np.sin(th), 0]
     if len(sys.argv) > 3:
         target = [float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])]
 

@@ -286,29 +286,29 @@ class BallDetector:
             print("[INFO] 相机资源已释放")
 
 # # -------------------- 主函数（测试用） --------------------
-# def main():
-#     """主函数，用于测试"""
-#     detector = BallDetector()
+def main():
+    """主函数，用于测试"""
+    detector = BallDetector()
     
-#     try:
-#         # 初始化相机
-#         if not detector.initialize_camera():
-#             return
+    try:
+        # 初始化相机
+        if not detector.initialize_camera():
+            return
         
-#         # 获取小球位置（显示图像窗口）
-#         relative_x, relative_y = detector.get_ball_position(display=True)
+        # 获取小球位置（显示图像窗口）
+        relative_x, relative_y = detector.get_ball_position(display=True)
         
-#         if relative_x is not None and relative_y is not None:
-#             print(f"[RESULT] 最终结果: relative_x = {relative_x:.2f}, relative_y = {relative_y:.2f}")
-#         else:
-#             print("[RESULT] 未获取到有效结果")
+        if relative_x is not None and relative_y is not None:
+            print(f"[RESULT] 最终结果: relative_x = {relative_x:.2f}, relative_y = {relative_y:.2f}")
+        else:
+            print("[RESULT] 未获取到有效结果")
             
-#     except Exception as e:
-#         print(f"[ERROR] 程序运行出错: {e}")
+    except Exception as e:
+        print(f"[ERROR] 程序运行出错: {e}")
         
-#     finally:
-#         # 确保资源被释放
-#         detector.close()
+    finally:
+        # 确保资源被释放
+        detector.close()
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

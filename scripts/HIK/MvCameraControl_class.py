@@ -41,12 +41,11 @@ def check_sys_and_update_dll():
     
     if currentsystem == 'Windows':
         #print(" current is windows system .")
-        MvCamCtrldllPath = "D:/sdcwork/franka_sdc/scripts/HIK/lib/MvCameraControl.dll"
-        MvCamCtrldll = ctypes.cdll.LoadLibrary(MvCamCtrldllPath)
-        # if "winmode" in ctypes.WinDLL.__init__.__code__.co_varnames:
-        #     MvCamCtrldll = WinDLL(MvCamCtrldllPath, winmode=0)
-        # else:
-        #     MvCamCtrldll = WinDLL(MvCamCtrldllPath)
+        MvCamCtrldllPath = "MvCameraControl.dll"
+        if "winmode" in ctypes.WinDLL.__init__.__code__.co_varnames:
+            MvCamCtrldll = WinDLL(MvCamCtrldllPath, winmode=0)
+        else:
+            MvCamCtrldll = WinDLL(MvCamCtrldllPath)
     else:
         architecture = platform.machine()
         if architecture == 'aarch64':
