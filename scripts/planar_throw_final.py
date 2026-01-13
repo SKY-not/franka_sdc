@@ -1,6 +1,8 @@
 import numpy as np
 import math
-from scipy.optimize import minimize
+# from scipy.optimize import minimize
+from HIK.ball_detector import BallDetector
+import time
 import sys
 import os
 
@@ -453,8 +455,24 @@ def generate_full_trajectory(q_release, dq_release):
     return traj_points, N_acc
 
 if __name__ == "__main__":
+    # find cicle
+    detector = BallDetector(
+        arm_x=9*25,                    # 机械臂X坐标
+        arm_z=-27*25,                  # 机械臂Z坐标
+        camera_focal_length=6.0,       # 相机焦距
+        pixel_size=0.0024,             # 像素尺寸
+        ball_diameter=120.0            # 小球直径
+    )
+    detector.initialize_camera()
+    x, y = detector.get_ball_position(display=False) 
     # Test case
-    target = [0.8, 0.6, 0.2]
+    target = [x,y,0.0]
+    print(target)
+    target = [1.212, 0.153, 0.0]
+    target = [1.128, -0.41, 0.0]
+    dis = 1.2
+    th = - np.pi / 12
+    target = [dis*np.cos(th), dis*np.sin(th), 0]
     if len(sys.argv) > 3:
         target = [float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])]
 
@@ -489,7 +507,7 @@ if __name__ == "__main__":
 
         # 3. Save Gripper Trajectory
         gripper_path = os.path.join(traj_dir, 'gripper.json')
-        rel_idx = res["release_index"]
+        rel_idx = res["release_index"] - 160
         total_len = len(full_traj_data)
         # True before release index, False at and after
         gripper_data = [True] * rel_idx + [False] * (total_len - rel_idx)
@@ -497,3 +515,32 @@ if __name__ == "__main__":
         with open(gripper_path, 'w') as f:
             json.dump(gripper_data, f, indent=4)
         print(f"Gripper trajectory saved to {gripper_path}")
+        
+        print("Starting Rust program...")   
+        import subprocess
+        # 获取项目根目录
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # rust_command = ["cargo", "run", "--example", "sim_only_physics_franka"]
+        rust_command = ["cargo", "run", "--release", "--example", "impedance_control_gripper"]
+        
+        # 选项 2: 运行主程序
+        # rust_command = ["cargo", "run"]
+        # 选项 3: 运行 release 版本（更快）
+        # rust_command = ["cargo", "run", "--release", "--example", "sim_only_physics_franka"]
+        
+        try:
+            # 在项目根目录执行 Rust 命令
+            result = subprocess.run(
+                rust_command,
+                cwd=project_root,
+                check=True,
+                capture_output=False  # 设置为 False 以实时显示输出
+            )
+            print(f"\nRust program completed successfully (exit code: {result.returncode})")
+        except subprocess.CalledProcessError as e:
+            print(f"\nRust program failed with exit code: {e.returncode}")
+        except FileNotFoundError:
+            print("\nError: 'cargo' command not found. Make sure Rust is installed and in PATH.")
+        except Exception as e:
+            print(f"\nError running Rust program: {e}")
+
