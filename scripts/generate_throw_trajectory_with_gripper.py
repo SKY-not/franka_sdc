@@ -49,7 +49,7 @@ def evaluate_quintic(coeffs, t):
     
     return q, v, a, j
 
-def check_limits(coeffs, T, v_max, a_max, j_max):
+def check_limits(coeffs, T, v_max, a_max, j_max, q_min, q_max):
     # Diff-based check at control frequency (1000Hz)
     dt = 0.001
     # Generate time steps
@@ -77,6 +77,8 @@ def check_limits(coeffs, T, v_max, a_max, j_max):
     j = np.gradient(a, dt)
 
     # Strict constraint checks
+    if np.any(q < q_min) or np.any(q > q_max):
+        return False
     if np.any(np.abs(v) > v_max):
         return False
     if np.any(np.abs(a) > a_max):
@@ -86,8 +88,9 @@ def check_limits(coeffs, T, v_max, a_max, j_max):
 
     return True
 
-def find_min_duration(q0, v0, a0, q1, v1, a1, limits):
+def find_min_duration(q0, v0, a0, q1, v1, a1, limits, q_limits):
     # limits: (v_max, a_max, j_max)
+    # q_limits: (q_min, q_max)
     dist = abs(q1 - q0)
     
     # Heuristic start T
@@ -101,12 +104,33 @@ def find_min_duration(q0, v0, a0, q1, v1, a1, limits):
     
     while T < max_T:
         coeffs = get_quintic_coeffs(q0, v0, a0, q1, v1, a1, T)
-        if check_limits(coeffs, T, *limits):
+        if check_limits(coeffs, T, *limits, *q_limits):
             return T
         T += dt_search
         
     print(f"Warning: Could not find valid T within {max_T}s")
     return max_T
+
+def check_cartesian_limits(coeffs, T):
+    dt = 0.01
+    steps = int(np.ceil(T / dt))
+    
+    for step in range(steps + 1):
+        t = step * dt
+        if t > T: t = T
+        
+        q_t = []
+        for i in range(7):
+            q, _, _, _ = evaluate_quintic(coeffs[i], t)
+            q_t.append(q)
+            
+        T_ee = franka_ik.forward_kinematics(q_t)
+        z = T_ee[2, 3]
+        
+        if z < 0.0:
+            return False, t, z
+            
+    return True, 0, 0
 
 def generate_trajectory():
     # 1. Load Plan
@@ -125,8 +149,6 @@ def generate_trajectory():
     
     # 2. Define States
     # Initial State (Neutral)
-    # q_start = np.array([0.0, 0.0, 0.0, -1.5, 0.0, 1.5, 0.0])
-    # q_start = config.DEFAULT_JOINT
     q_start = config.START_JOINT
     dq_start = np.zeros(7)
     ddq_start = np.zeros(7)
@@ -154,7 +176,6 @@ def generate_trajectory():
 
     # Calculate Natural Stopping Position for Phase 2
     decel_factor = config.SAFETY_FACTOR
-    # decel_factor = 0.8 # Use 80% of max acceleration for braking
     for i in range(7):
         v = dq_release[i]
         if abs(v) < 1e-4:
@@ -185,13 +206,37 @@ def generate_trajectory():
         T = find_min_duration(
             q_start[i], dq_start[i], ddq_start[i],
             q_release[i], dq_release[i], ddq_release[i],
-            (v_local_limit, a_local_limit, j_plan[i])
+            (v_local_limit, a_local_limit, j_plan[i]),
+            franka_ik.JOINT_LIMITS[i]
         )
         T1_joints.append(T)
     
     T1 = max(T1_joints)
     # Round up to next ms to align with control frequency
     T1 = np.ceil(T1 * 1000) / 1000.0
+
+    # Validate Phase 1 Cartesian limits
+    print("Validating Phase 1 Cartesian limits...")
+    while True:
+        coeffs1 = []
+        for i in range(7):
+            c = get_quintic_coeffs(
+                q_start[i], dq_start[i], ddq_start[i],
+                q_release[i], dq_release[i], ddq_release[i],
+                T1
+            )
+            coeffs1.append(c)
+            
+        valid, t_fail, z_fail = check_cartesian_limits(coeffs1, T1)
+        if valid:
+            break
+            
+        print(f"Phase 1 collision detected at t={t_fail:.3f}s (z={z_fail:.4f}m). Increasing T1...")
+        T1 += 0.1
+        if T1 > 30.0:
+            print("Warning: Phase 1 duration exceeded 30s, proceeding with risk of collision.")
+            break
+
     print(f"Phase 1 Duration: {T1:.4f} s")
     
     # 4. Phase 2: Release -> Stop (Return to Neutral)
@@ -208,20 +253,45 @@ def generate_trajectory():
         T = find_min_duration(
             q_release[i], dq_release[i], ddq_release[i],
             q_end[i], dq_end[i], ddq_end[i],
-            (v_local_limit, a_local_limit, j_plan[i])
+            (v_local_limit, a_local_limit, j_plan[i]),
+            franka_ik.JOINT_LIMITS[i]
         )
         T2_joints.append(T)
         
     T2 = max(T2_joints)
     # Round up to next ms
     T2 = np.ceil(T2 * 1000) / 1000.0
+
+    # Validate Phase 2 Cartesian limits
+    print("Validating Phase 2 Cartesian limits...")
+    while True:
+        coeffs2 = []
+        for i in range(7):
+            c = get_quintic_coeffs(
+                q_release[i], dq_release[i], ddq_release[i],
+                q_end[i], dq_end[i], ddq_end[i],
+                T2
+            )
+            coeffs2.append(c)
+            
+        valid, t_fail, z_fail = check_cartesian_limits(coeffs2, T2)
+        if valid:
+            break
+            
+        print(f"Phase 2 collision detected at t={t_fail:.3f}s (z={z_fail:.4f}m). Increasing T2...")
+        T2 += 0.1
+        if T2 > 30.0:
+            print("Warning: Phase 2 duration exceeded 30s, proceeding with risk of collision.")
+            break
+
     print(f"Phase 2 Duration: {T2:.4f} s")
     
     # 5. Generate Full Trajectory
     freq = 1000.0
     dt = 1.0 / freq
     
-    full_traj_data = []
+    traj_data = []
+    gripper_data = []
     
     # Phase 1 Generation
     coeffs1 = []
@@ -240,7 +310,9 @@ def generate_trajectory():
         for i in range(7):
             q, _, _, _ = evaluate_quintic(coeffs1[i], t)
             q_t.append(q)
-        full_traj_data.append({"Joint": q_t})
+        # Gripper is CLOSED (True) during approach
+        traj_data.append({"Joint": q_t})
+        gripper_data.append(True)
         
     # Phase 2 Generation
     coeffs2 = []
@@ -259,56 +331,26 @@ def generate_trajectory():
         for i in range(7):
             q, _, _, _ = evaluate_quintic(coeffs2[i], t)
             q_t.append(q)
-        full_traj_data.append({"Joint": q_t})
+        # Gripper is OPEN (False) during return/decel
+        traj_data.append({"Joint": q_t})
+        gripper_data.append(False)
         
     # Add final point explicitly to ensure we hit exactly
-    full_traj_data.append({"Joint": q_end.tolist()})
+    traj_data.append({"Joint": q_end.tolist()})
+    gripper_data.append(False)
     
     # 6. Save
-    output_path = os.path.join(traj_dir, 'full_throw_trajectory.json')
-    with open(output_path, 'w') as f:
-        json.dump(full_traj_data, f, indent=4)
+    traj_output_path = os.path.join(traj_dir, 'full_throw_trajectory.json')
+    with open(traj_output_path, 'w') as f:
+        json.dump(traj_data, f, indent=4)
         
-    print(f"Trajectory saved to {output_path}")
-    print(f"Total points: {len(full_traj_data)}")
-
-    # 7. Final Verification
-    print("\nVerifying generated trajectory against FULL limits...")
-    q_all = np.array([d['Joint'] for d in full_traj_data])
-    n_points = len(q_all)
-    
-    # Finite differences
-    v_all = np.zeros_like(q_all)
-    v_all[1:-1] = (q_all[2:] - q_all[:-2]) / (2 * dt)
-    v_all[0] = (q_all[1] - q_all[0]) / dt
-    v_all[-1] = (q_all[-1] - q_all[-2]) / dt
-    
-    a_all = np.zeros_like(v_all)
-    a_all[1:-1] = (v_all[2:] - v_all[:-2]) / (2 * dt)
-    a_all[0] = (v_all[1] - v_all[0]) / dt
-    a_all[-1] = (v_all[-1] - v_all[-2]) / dt
-    
-    j_all = np.zeros_like(a_all)
-    j_all[1:-1] = (a_all[2:] - a_all[:-2]) / (2 * dt)
-    j_all[0] = (a_all[1] - a_all[0]) / dt
-    j_all[-1] = (a_all[-1] - a_all[-2]) / dt
-    
-    passed = True
-    for i in range(7):
-        if np.max(np.abs(v_all[:, i])) > v_limits[i]:
-            print(f"FAIL: Joint {i+1} Velocity violation! Max: {np.max(np.abs(v_all[:, i])):.4f} > {v_limits[i]:.4f}")
-            passed = False
-        if np.max(np.abs(a_all[:, i])) > a_limits[i]:
-            print(f"FAIL: Joint {i+1} Acceleration violation! Max: {np.max(np.abs(a_all[:, i])):.4f} > {a_limits[i]:.4f}")
-            passed = False
-        if np.max(np.abs(j_all[:, i])) > j_limits[i]:
-            print(f"FAIL: Joint {i+1} Jerk violation! Max: {np.max(np.abs(j_all[:, i])):.4f} > {j_limits[i]:.4f}")
-            passed = False
-            
-    if passed:
-        print("VERIFICATION PASSED: Trajectory is safe.")
-    else:
-        print("VERIFICATION FAILED: Trajectory violates limits!")
+    gripper_output_path = os.path.join(traj_dir, 'gripper.json')
+    with open(gripper_output_path, 'w') as f:
+        json.dump(gripper_data, f, indent=4)
+        
+    print(f"Trajectory saved to {traj_output_path}")
+    print(f"Gripper state saved to {gripper_output_path}")
+    print(f"Total points: {len(traj_data)}")
 
 if __name__ == "__main__":
     generate_trajectory()

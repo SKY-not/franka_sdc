@@ -86,7 +86,7 @@ fn main() -> anyhow::Result<()> {
     // }
     // let _ = robot.state()?;
 
-    robot.move_traj_from_file("./traj/trajectory.json")?;
+    robot.move_traj_from_file("./traj/full_throw_trajectory.json")?;
 
     for _ in 0..10000 {
         physics_engine.step()?;

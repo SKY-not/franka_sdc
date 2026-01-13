@@ -3229,10 +3229,11 @@ checksum = "795cbfc56d419a7ce47ccbb7504dd9a5b7c484c083c356e797de08bd988d9629"
 
 [[package]]
 name = "franka_rust"
-version = "0.1.12"
+version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "162606bc273dd0fbe55281ccd86e9e632659fdd12196cd5e7ab84d39dc1d9eb2"
+checksum = "66b5ce5667f6bb6a3d940c45315f815bcf42112692c0e58ddf360a35243e77e1"
 dependencies = [
+ "anyhow",
  "bincode",
  "bitflags 2.10.0",
  "crossbeam",
@@ -4901,6 +4902,7 @@ dependencies = [
  "robot_behavior",
  "roplat_rerun",
  "rsbullet",
+ "serde_json",
 ]
 
 [[package]]
@@ -9099,15 +9101,15 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.145"
+version = "1.0.148"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "402a6f66d8c709116cf22f558eab210f5a50187f702eb4d7e5ef38d9a7f1c79c"
+checksum = "3084b546a1dd6289475996f182a22aba973866ea8e8b02c51d9f46b1336a22da"
 dependencies = [
  "itoa",
  "memchr",
- "ryu",
  "serde",
  "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -11816,6 +11818,12 @@ dependencies = [
  "quote",
  "syn 2.0.110",
 ]
+
+[[package]]
+name = "zmij"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6d6085d62852e35540689d1f97ad663e3971fc19cf5eceab364d62c646ea167"
 
 [[package]]
 name = "zstd"
