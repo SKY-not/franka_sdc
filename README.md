@@ -1,4 +1,6 @@
-# Readme
+# Franka-SDC
+
+这里是2025-秋季学习系统动力学与控制课程的先进实验，我们实现了一个关于操作 Franka Emika Panda 7自由度机械臂进行夹取并加速投掷的项目。
 
 ## 环境需求
 
@@ -10,5 +12,6 @@
 - [Cmake](https://cmake.org/download/)
 - rerun 运行 `cargo install --force rerun-cli@0.26.2`
 
-## 说明
-FrankaEmika 机械臂没有磁吸工装，所以`tio_vout.rs`中的代码无需使用
+## 致谢
+
+感谢助教 Jizhou Yan 关于 Franka 机械臂 rust 接口的支持，帮助我们降低了项目的工作量
